@@ -25,7 +25,7 @@ return new class extends Migration
 
             $table->unique(['supplier_id', 'external_id']);
             $table->index(
-                ['property_id', 'check_in', 'check_out', 'available_units', 'expires_at'],
+                ['check_in', 'check_out', 'available_units', 'expires_at', 'property_id', 'price'],
                 'offers_search_index'
             );
         });
