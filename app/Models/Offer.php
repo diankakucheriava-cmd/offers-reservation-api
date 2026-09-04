@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Exceptions\OfferUnavailableException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class Offer extends Model
 {
@@ -53,5 +55,31 @@ class Offer extends Model
     public function reservations(): HasMany
     {
         return $this->hasMany(Reservation::class);
+    }
+
+    public function isBookable(): bool
+    {
+        return $this->available_units > 0 && $this->expires_at->isFuture();
+    }
+
+    /**
+     *
+     * @param  array<string, mixed>  $customer
+     *
+     * @throws OfferUnavailableException
+     */
+    public function reserve(array $customer): Reservation
+    {
+        return DB::transaction(function () use ($customer): Reservation {
+            $offer = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
+
+            if (! $offer->isBookable()) {
+                throw new OfferUnavailableException();
+            }
+
+            $offer->decrement('available_units');
+
+            return $offer->reservations()->create($customer);
+        });
     }
 }
