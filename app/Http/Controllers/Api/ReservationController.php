@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\DuplicateReservationException;
 use App\Exceptions\OfferUnavailableException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreReservationRequest;
@@ -15,7 +16,7 @@ class ReservationController extends Controller
     {
         try {
             $reservation = $offer->reserve($request->validated());
-        } catch (OfferUnavailableException $e) {
+        } catch (OfferUnavailableException|DuplicateReservationException $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         }
 

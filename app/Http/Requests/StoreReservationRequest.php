@@ -23,9 +23,9 @@ class StoreReservationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'client_reference' => ['required', 'string', 'unique:reservations,client_reference'],
-            'customer_name' => ['required', 'string'],
-            'customer_email' => ['required', 'email'],
+            'client_reference' => ['required', 'string', 'max:255', 'unique:reservations,client_reference'],
+            'customer_name' => ['required', 'string', 'max:255'],
+            'customer_email' => ['required', 'email', 'max:255'],
         ];
     }
 }

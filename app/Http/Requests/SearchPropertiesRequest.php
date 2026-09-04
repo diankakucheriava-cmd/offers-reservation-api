@@ -23,7 +23,7 @@ class SearchPropertiesRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'city' => ['sometimes', 'string'],
+            'city' => ['sometimes', 'string', 'max:255'],
             'check_in' => ['required', 'date'],
             'check_out' => ['required', 'date', 'after:check_in'],
             'guests' => ['required', 'integer', 'min:1'],

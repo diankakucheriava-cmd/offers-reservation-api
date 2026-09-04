@@ -16,6 +16,21 @@ class ProcessImportJob implements ShouldQueue
     use Queueable;
 
     /**
+     * Number of times to attempt the job before giving up.
+     */
+    public int $tries = 3;
+
+    /**
+     * Seconds to wait between retry attempts.
+     */
+    public int $backoff = 10;
+
+    /**
+     * Seconds allowed for a single attempt before it's considered timed out.
+     */
+    public int $timeout = 120;
+
+    /**
      * Create a new job instance.
      *
      * @param  array<int, array<string, mixed>>  $offers
@@ -30,24 +45,31 @@ class ProcessImportJob implements ShouldQueue
      */
     public function handle(): void
     {
-        $this->import->update(['status' => ImportStatus::Processing]);
+        $this->import->update([
+            'status' => ImportStatus::Processing,
+            'processed_offers' => 0,
+            'error' => null,
+            'completed_at' => null,
+        ]);
 
-        try {
-            foreach ($this->offers as $offerData) {
-                $this->processOffer($offerData);
-            }
-
-            $this->import->update([
-                'status' => ImportStatus::Completed,
-                'completed_at' => now(),
-            ]);
-        } catch (Throwable $e) {
-            $this->import->update([
-                'status' => ImportStatus::Failed,
-                'error' => $e->getMessage(),
-                'completed_at' => now(),
-            ]);
+        foreach ($this->offers as $offerData) {
+            $this->processOffer($offerData);
         }
+
+        $this->import->update([
+            'status' => ImportStatus::Completed,
+            'error' => null,
+            'completed_at' => now(),
+        ]);
+    }
+
+    public function failed(Throwable $exception): void
+    {
+        $this->import->update([
+            'status' => ImportStatus::Failed,
+            'error' => $exception->getMessage(),
+            'completed_at' => now(),
+        ]);
     }
 
     /**

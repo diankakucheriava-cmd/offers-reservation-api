@@ -39,8 +39,8 @@ class Property extends Model
             ->where('available_units', '>', 0)
             ->where('expires_at', '>', now());
 
-        $bestOffers = DB::table(DB::raw("({$rankedOffers->toSql()}) as ranked"))
-            ->mergeBindings($rankedOffers->getQuery())
+        $bestOffers = DB::query()
+            ->fromSub($rankedOffers, 'ranked')
             ->where('rn', 1);
 
         return $query

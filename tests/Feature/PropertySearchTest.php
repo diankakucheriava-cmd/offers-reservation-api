@@ -136,4 +136,16 @@ class PropertySearchTest extends TestCase
             'guests' => 2,
         ], $overrides)));
     }
+
+    public function test_equal_price_offers_are_broken_by_lowest_id(): void
+    {
+        $property = Property::factory()->create(['city' => 'Barcelona']);
+        $olderOffer = $this->makeOffer($property, ['price' => 50000]);
+        $this->makeOffer($property, ['price' => 50000]);
+
+        $response = $this->searchDefault(['city' => 'Barcelona']);
+
+        $response->assertOk();
+        $response->assertJsonPath('data.0.best_offer.id', $olderOffer->id);
+    }
 }

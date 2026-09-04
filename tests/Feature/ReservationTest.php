@@ -82,4 +82,15 @@ class ReservationTest extends TestCase
 
         $response->assertStatus(422);
     }
+
+    public function test_a_client_reference_race_that_bypasses_form_validation_is_rejected_by_the_db_constraint(): void
+    {
+        $offerA = Offer::factory()->create(['available_units' => 5]);
+        $offerB = Offer::factory()->create(['available_units' => 5]);
+
+        $offerA->reserve($this->payload());
+
+        $this->expectException(\App\Exceptions\DuplicateReservationException::class);
+        $offerB->reserve($this->payload());
+    }
 }

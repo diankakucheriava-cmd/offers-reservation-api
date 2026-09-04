@@ -51,6 +51,10 @@ php artisan queue:work
 
 (`php artisan queue:work --once` processes a single job and exits, useful for manual testing.)
 
+`ProcessImportJob` retries up to 3 times (10s backoff) and allows up to 120s per attempt before
+being considered timed out. If you pass `--timeout` to `queue:work` explicitly, keep it at 120
+or higher so the worker doesn't kill a job before the job's own timeout does.
+
 ## Tests
 
 ```bash
@@ -111,7 +115,8 @@ curl -X POST http://127.0.0.1:8000/api/offers/1/reservations \
 
 ## Import idempotency
 
-Two things guarantee that resending the same import never creates duplicates or reprocesses data:
+Two things guarantee that resending the *same* import request never creates duplicates or
+reprocesses data:
 
 1. **`imports` unique constraint** on `(supplier_id, external_import_id)`. The controller calls
    `Import::createOrFirstPending()`, which attempts an `INSERT` and, if the unique constraint is
@@ -122,6 +127,24 @@ Two things guarantee that resending the same import never creates duplicates or 
    written with `updateOrCreate()` keyed on that pair, so an offer that was already imported (even
    from a different `import_id`) is *updated* in place rather than duplicated, and its `import_id`
    is repointed to the most recent import that touched it.
+
+Known limitations of this scheme (deliberate scope decisions, not oversights):
+
+- **Each offer is processed in its own transaction**, not the whole import in one transaction. If
+  offer 5 of 20 fails, offers 1–4 are already committed and visible even though the import ends up
+  `failed`. An all-or-nothing import would require staging the offers separately and publishing
+  them only once the whole batch succeeds — out of scope here.
+- **A `failed` import is not automatically retried by resubmitting the same request.** Resending
+  the same `(supplier, external_import_id)` finds the existing (failed) row and does not dispatch
+  a new job, since the row already exists. The job itself does retry transient failures (`$tries`
+  + `backoff` on `ProcessImportJob`, with `failed()` recording the final error), but a supplier
+  wanting to force reprocessing after a permanent failure would need a new `external_import_id`.
+- **No cross-import freshness check.** If an older import (by `sent_at`) arrives after a newer one
+  has already updated the same offer, its data still overwrites the newer data — the task
+  specification requires updating an existing offer's data on resubmission and does not describe
+  out-of-order delivery, so no ordering/staleness rule was invented for it.
+- **Cheapest-offer comparison assumes a single comparable currency** across all suppliers/offers
+  for the same search; prices are compared as raw integers with no currency conversion.
 
 ## Protecting against double-booking the last unit
 
@@ -135,8 +158,11 @@ only one of the two requests can succeed for the last unit; the other receives `
 Without the lock, both requests could read `available_units = 1` concurrently and both decide to
 book, resulting in overselling.
 
-`client_reference` is also enforced unique at the database level, so a resubmitted/duplicate
-booking request cannot create two reservations.
+`client_reference` is validated as unique at the request level for a clear `422` in the common
+case, and is also enforced unique at the database level as the final guard: if two concurrent
+requests somehow pass validation with the same reference, `Offer::reserve()` catches the resulting
+DB unique-constraint violation and turns it into a `409 Conflict` rather than a `500`.
+
 
 ## Design notes
 

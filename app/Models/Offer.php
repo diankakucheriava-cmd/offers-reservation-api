@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Exceptions\DuplicateReservationException;
 use App\Exceptions\OfferUnavailableException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 class Offer extends Model
@@ -63,10 +65,10 @@ class Offer extends Model
     }
 
     /**
-     *
      * @param  array<string, mixed>  $customer
      *
      * @throws OfferUnavailableException
+     * @throws DuplicateReservationException
      */
     public function reserve(array $customer): Reservation
     {
@@ -79,7 +81,11 @@ class Offer extends Model
 
             $offer->decrement('available_units');
 
-            return $offer->reservations()->create($customer);
+            try {
+                return $offer->reservations()->create($customer);
+            } catch (UniqueConstraintViolationException) {
+                throw new DuplicateReservationException('This client_reference has already been used for a reservation.');
+            }
         });
     }
 }

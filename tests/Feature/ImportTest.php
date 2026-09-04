@@ -153,4 +153,37 @@ class ImportTest extends TestCase
             ->assertJsonPath('data.supplier', 'supplier-a')
             ->assertJsonPath('data.status', 'completed');
     }
+
+    public function test_it_rejects_duplicate_external_id_within_the_same_payload(): void
+    {
+        Supplier::factory()->create(['code' => 'supplier-a']);
+        $payload = $this->payload();
+        $payload['offers'][] = $payload['offers'][0];
+        $payload['offers'][1]['price'] = 1000;
+
+        $response = $this->postJson('/api/imports', $payload);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['offers.0.external_id', 'offers.1.external_id']);
+    }
+
+    public function test_the_job_marks_the_import_as_failed_after_the_final_retry(): void
+    {
+        $supplier = Supplier::factory()->create(['code' => 'supplier-a']);
+        $import = Import::factory()->create(['supplier_id' => $supplier->id]);
+
+        $job = new ProcessImportJob($import, [['external_id' => 'broken']]);
+
+        try {
+            $job->handle();
+            $this->fail('Expected handle() to throw for malformed offer data.');
+        } catch (\Throwable $e) {
+            $job->failed($e);
+        }
+
+        $import->refresh();
+        $this->assertSame(ImportStatus::Failed, $import->status);
+        $this->assertNotNull($import->error);
+        $this->assertNotNull($import->completed_at);
+    }
 }
