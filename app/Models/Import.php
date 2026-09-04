@@ -42,4 +42,20 @@ class Import extends Model
     {
         return $this->hasMany(Offer::class);
     }
+
+    public static function createOrFirstPending(Supplier $supplier, string $externalImportId, string $sentAt, int $totalOffers): self
+    {
+        return static::createOrFirst(
+            [
+                'supplier_id' => $supplier->id,
+                'external_import_id' => $externalImportId,
+            ],
+            [
+                'sent_at' => $sentAt,
+                'status' => ImportStatus::Pending,
+                'total_offers' => $totalOffers,
+                'processed_offers' => 0,
+            ]
+        );
+    }
 }
