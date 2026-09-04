@@ -1,59 +1,152 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Offers Reservation API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 12 REST API for asynchronously importing housing offers from suppliers, searching the
+cheapest currently valid offer per property, and safely reserving an offer.
 
-## About Laravel
+## Requirements
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP 8.2+
+- Composer
+- Docker (used here to run MySQL 8; the app itself runs locally with your PHP install)
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Setup
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+```bash
+git clone https://github.com/diankakucheriava-cmd/offers-reservation-api.git
+cd offers-reservation-api
 
-## Learning Laravel
+composer install
+cp .env.example .env
+php artisan key:generate
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+# Starts a MySQL 8 container (see compose.yaml). The app connects to it via
+# 127.0.0.1:3306, using the credentials already set in .env.example.
+docker compose up -d
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Migrations & seeders
 
-## Laravel Sponsors
+```bash
+php artisan migrate --seed
+```
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+The seeder creates the two suppliers required by the task: `supplier-a` and `supplier-b`.
 
-### Premium Partners
+## Running the app
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+```bash
+php artisan serve
+```
 
-## Contributing
+The API is then available at `http://127.0.0.1:8000/api`.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Queue worker
 
-## Code of Conduct
+Imports are processed asynchronously via `QUEUE_CONNECTION=database`. Run a worker in a
+separate terminal so `POST /api/imports` jobs actually get processed:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```bash
+php artisan queue:work
+```
 
-## Security Vulnerabilities
+(`php artisan queue:work --once` processes a single job and exits, useful for manual testing.)
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Tests
 
-## License
+```bash
+php artisan test
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Feature tests use the `offers_reservation_test` MySQL database (see `phpunit.xml`), created
+automatically by `docker/mysql/create-testing-database.sh` when the MySQL container starts
+for the first time.
+
+## API overview
+
+| Method | Endpoint                          | Description                                   |
+|--------|------------------------------------|------------------------------------------------|
+| POST   | `/api/imports`                     | Submit a supplier import (returns `202`)       |
+| GET    | `/api/imports/{import}`            | Check the status of an import                  |
+| GET    | `/api/properties`                  | Search properties by their cheapest valid offer|
+| POST   | `/api/offers/{offer}/reservations` | Reserve an offer                               |
+
+### Example: submit an import
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/imports \
+  -H "Content-Type: application/json" \
+  -d '{
+    "supplier": "supplier-a",
+    "external_import_id": "import-2026-09-01-001",
+    "sent_at": "2026-09-01T10:00:00Z",
+    "offers": [
+      {
+        "external_id": "offer-a-10001",
+        "property": {"code": "BCN-0001", "name": "Apartment near Sagrada Familia", "city": "Barcelona"},
+        "check_in": "2026-10-10",
+        "check_out": "2026-10-15",
+        "max_guests": 4,
+        "price": 72500,
+        "currency": "EUR",
+        "available_units": 2,
+        "expires_at": "2026-09-10T23:59:59Z"
+      }
+    ]
+  }'
+```
+
+### Example: search properties
+
+```bash
+curl "http://127.0.0.1:8000/api/properties?city=Barcelona&check_in=2026-10-10&check_out=2026-10-15&guests=2"
+```
+
+### Example: reserve an offer
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/offers/1/reservations \
+  -H "Content-Type: application/json" \
+  -d '{"client_reference": "web-order-9f782b1c", "customer_name": "John Smith", "customer_email": "john@example.com"}'
+```
+
+## Import idempotency
+
+Two things guarantee that resending the same import never creates duplicates or reprocesses data:
+
+1. **`imports` unique constraint** on `(supplier_id, external_import_id)`. The controller calls
+   `Import::createOrFirstPending()`, which attempts an `INSERT` and, if the unique constraint is
+   violated (including under concurrent requests), falls back to fetching the existing row instead
+   of failing. The `ProcessImportJob` is only dispatched when the import row was actually just
+   created (`$import->wasRecentlyCreated`), so a resent request never re-queues processing.
+2. **`offers` unique constraint** on `(supplier_id, external_id)`. Inside the job, each offer is
+   written with `updateOrCreate()` keyed on that pair, so an offer that was already imported (even
+   from a different `import_id`) is *updated* in place rather than duplicated, and its `import_id`
+   is repointed to the most recent import that touched it.
+
+## Protecting against double-booking the last unit
+
+`POST /api/offers/{offer}/reservations` (`Offer::reserve()`) wraps the whole operation in a
+database transaction and re-fetches the offer row with `lockForUpdate()` (`SELECT ... FOR UPDATE`).
+This takes a row-level exclusive lock in MySQL: if two requests try to reserve the same offer at
+the same time, the second request's `SELECT ... FOR UPDATE` blocks until the first transaction
+commits (or rolls back). By the time the second request acquires the lock, it re-reads the
+already-decremented `available_units` and re-validates availability/expiry before proceeding — so
+only one of the two requests can succeed for the last unit; the other receives `409 Conflict`.
+Without the lock, both requests could read `available_units = 1` concurrently and both decide to
+book, resulting in overselling.
+
+`client_reference` is also enforced unique at the database level, so a resubmitted/duplicate
+booking request cannot create two reservations.
+
+## Design notes
+
+- Prices are stored as integers in the currency's minor unit (e.g. cents) to avoid floating-point
+  rounding issues.
+- Foreign keys on `imports`, `offers`, and `reservations` use `restrictOnDelete()` rather than
+  cascading deletes, since these are audit/booking records that should never disappear silently
+  as a side effect of deleting a supplier, property, or offer.
+- The cheapest-offer search (`GET /api/properties`) is done entirely in SQL using a window
+  function (`ROW_NUMBER() OVER (PARTITION BY property_id ORDER BY price)`) joined back to
+  `properties`, with pagination applied by Eloquent's query builder — no offers are loaded into
+  PHP and grouped in memory.
+
